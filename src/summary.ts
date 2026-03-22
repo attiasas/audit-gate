@@ -63,18 +63,17 @@ function isNotApplicable(applicable?: string): boolean {
 
 /**
  * Two-level sort:
- * 1. By severity (Critical → High → Medium → Low → Unknown)
- * 2. Within each severity, "Not Applicable" rows go to the bottom
+ * 1. "Not Applicable" rows sink to the bottom
+ * 2. Within each group, sort by severity (Critical → High → Medium → Low → Unknown)
  */
 export function sortFindings<T extends { severity?: string; applicable?: string }>(
   rows: T[],
 ): T[] {
   return [...rows].sort((a, b) => {
-    const severityDiff = severityRank(a.severity) - severityRank(b.severity);
-    if (severityDiff !== 0) return severityDiff;
     const aNA = isNotApplicable(a.applicable) ? 1 : 0;
     const bNA = isNotApplicable(b.applicable) ? 1 : 0;
-    return aNA - bNA;
+    if (aNA !== bNA) return aNA - bNA;
+    return severityRank(a.severity) - severityRank(b.severity);
   });
 }
 
@@ -329,15 +328,26 @@ function renderOverviewTable(results: SimpleJsonResults, inputs: ActionInputs): 
 
   if (scanTypes.length === 0) return '';
 
-  const headerCols = allSeverities.map(s => `${smallSeverityBadge(s)} ${s}`);
-  const headers = ['Scan Type', 'Total', ...headerCols];
+  const allHeaderCols = allSeverities.map(s => `${smallSeverityBadge(s)} ${s}`);
 
-  const tableRows = scanTypes.map(scan => {
+  const rawRows = scanTypes.map(scan => {
     const bySev = countBySeverity(scan.rows);
     const total = scan.rows.length;
     const sevCells = allSeverities.map(s => String(bySev[s] ?? 0));
     return [escapeHtml(scan.label), String(total), ...sevCells];
   });
+
+  // Determine which severity columns have at least one non-zero value
+  const sevIndices = allSeverities
+    .map((_, i) => i)
+    .filter(i => rawRows.some(row => row[2 + i] !== '0'));
+
+  const headers = ['Scan Type', 'Total', ...sevIndices.map(i => allHeaderCols[i])];
+  const tableRows = rawRows.map(row => [
+    row[0],
+    row[1],
+    ...sevIndices.map(i => row[2 + i]),
+  ]);
 
   return htmlTable(headers, tableRows);
 }
@@ -349,14 +359,14 @@ function renderOverviewTable(results: SimpleJsonResults, inputs: ActionInputs): 
 function renderVulnRows(rows: VulnerabilityOrViolationRow[], includeViolationCols: boolean): string[][] {
   return sortFindings(rows).map(row => {
     const cells = [
-      severityCell(row.severity, row.applicable),
-      `<strong>${escapeHtml(row.impactedPackageName ?? '—')}</strong>`,
-      `${escapeHtml(row.impactedPackageVersion ?? '')}`,
-      escapeHtml(row.impactedPackageType ?? '—'),
-      formatDirectDeps(row.components),
       formatCves(row.cves),
-      formatFixed(row.fixedVersions),
+      severityCell(row.severity, row.applicable),
       escapeHtml(row.applicable ?? '—'),
+      formatDirectDeps(row.components),
+      `<strong>${escapeHtml(row.impactedPackageName ?? '—')}</strong>`,
+      escapeHtml(row.impactedPackageVersion ?? ''),
+      formatFixed(row.fixedVersions),
+      escapeHtml(row.impactedPackageType ?? '—'),
     ];
     if (includeViolationCols) {
       cells.push(
@@ -372,14 +382,14 @@ function renderVulnRows(rows: VulnerabilityOrViolationRow[], includeViolationCol
 
 function vulnHeaders(includeViolationCols: boolean): string[] {
   const base = [
+    'CVEs',
     'Severity',
+    'Applicable',
+    'Direct Dependency',
     'Package',
     'Version',
-    'Type',
-    'Direct Dependency',
-    'CVEs',
     'Fixed Versions',
-    'Applicable',
+    'Type',
   ];
   if (includeViolationCols) {
     return [...base, 'Watch', 'Policies', 'Fail PR', 'Fail Build'];
@@ -437,12 +447,17 @@ function renderLicenseViolationRows(rows: LicenseViolationRow[]): string[][] {
 }
 
 function renderLicenseRows(rows: LicenseRow[]): string[][] {
-  return rows.map(row => [
-    escapeHtml(row.impactedPackageName ?? '—'),
-    escapeHtml(row.impactedPackageVersion ?? '—'),
-    escapeHtml(row.licenseKey ?? '—'),
-    escapeHtml(row.licenseName ?? '—'),
-  ]);
+  return rows.map(row => {
+    const pkg = row.impactedPackageName ?? '—';
+    const ver = row.impactedPackageVersion;
+    const impacted = ver ? `${escapeHtml(pkg)}@${escapeHtml(ver)}` : escapeHtml(pkg);
+    return [
+      escapeHtml(row.licenseKey ?? '—'),
+      escapeHtml(row.licenseName ?? '—'),
+      formatDirectDeps(row.components),
+      `<code>${impacted}</code>`,
+    ];
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -500,12 +515,12 @@ export async function buildSummary(
   s.addHeading('JFrog Security Audit Results', 1);
 
   // Metadata
-  const metaParts: string[] = [];
-  if (results.multiScanId) metaParts.push(`**Scan ID:** \`${results.multiScanId}\``);
+  const metaLines: string[] = [];
+  if (results.multiScanId) metaLines.push(`<strong>Scan ID:</strong> <code>${escapeHtml(results.multiScanId)}</code>`);
   const runAt = new Date().toUTCString();
-  metaParts.push(`**Scanned at:** ${runAt}`);
-  if (metaParts.length > 0) {
-    s.addRaw(`<p>${metaParts.join(' &nbsp;|&nbsp; ')}</p>\n\n`);
+  metaLines.push(`<strong>Scanned at:</strong> ${escapeHtml(runAt)}`);
+  if (metaLines.length > 0) {
+    s.addRaw(`<p>${metaLines.join('<br/>\n')}</p>\n\n`);
   }
 
   // ---- Scan Status (shown FIRST if any scan failed) --------------------
@@ -528,10 +543,8 @@ export async function buildSummary(
 
   if (totalFindings === 0 && (results.errors?.length ?? 0) === 0) {
     s.addRaw(
-      `\n<div align="center">\n\n` +
-        `## ✅ No security issues detected\n\n` +
-        `Your source code passed the JFrog security audit with no findings.\n\n` +
-        `</div>\n\n`,
+      `\n> **✅ No security issues detected**\n>\n` +
+        `> Your source code passed the JFrog security audit with no findings.\n\n`,
     );
   }
 
@@ -690,7 +703,7 @@ export async function buildSummary(
       details(
         `📋 Discovered Licenses (${discoveredLicenses.length})`,
         htmlTable(
-          ['Package', 'Version', 'License Key', 'License Name'],
+          ['License Key', 'License Name', 'Direct Dependency', 'Impacted Package'],
           renderLicenseRows(discoveredLicenses),
         ),
       ),
