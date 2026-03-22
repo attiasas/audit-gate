@@ -1,0 +1,177 @@
+name: 'audit-gate'
+description: 'Run JFrog CLI security audit (SCA, Secrets, SAST, IaC) and publish rich results as a GitHub Job Summary.'
+author: 'JFrog'
+
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  working-dirs:
+    description: >
+      Comma-separated list of relative working directories to audit.
+      When not set, the entire repository root is scanned recursively.
+    required: false
+
+  exclusions:
+    description: >
+      Semicolon-separated list of exclusion patterns (supports * and ? wildcards).
+      Example: '*.git*;*node_modules*;*target*'
+    required: false
+
+  project:
+    description: >
+      JFrog project key. Used to resolve Xray security policies for this project.
+      Incompatible with 'watches' and 'repo-path'.
+    required: false
+
+  watches:
+    description: >
+      Comma-separated list of Xray watch names.
+      Used to resolve policy-based violations. Incompatible with 'project' and 'repo-path'.
+    required: false
+
+  repo-path:
+    description: >
+      Artifactory repository path (e.g. 'libs-release-local/my-app').
+      Used to resolve Xray policies for the repository. Incompatible with 'project' and 'watches'.
+    required: false
+
+  vuln:
+    description: >
+      Show all vulnerabilities regardless of the configured Xray policy.
+      Useful when 'project', 'watches', or 'repo-path' is set but you also
+      want to see un-violated vulnerabilities.
+    required: false
+    default: 'false'
+
+  threads:
+    description: 'Number of parallel threads used for scanning.'
+    required: false
+    default: '5'
+
+  fail:
+    description: >
+      Set to 'true' to fail the action when any security finding is detected
+      (vulnerabilities, violations, secrets, IaC issues, or SAST issues).
+    required: false
+    default: 'true'
+
+  fail-on-pr-policy:
+    description: >
+      Fail the action when any policy violation has "Fail Pull Request" configured,
+      regardless of the 'fail' input. Relevant only when policy scope is configured
+      (project / watches / repo-path).
+    required: false
+    default: 'true'
+
+  fail-on-build-policy:
+    description: >
+      Fail the action when any policy violation has "Fail Build" configured,
+      regardless of the 'fail' input. Relevant only when policy scope is configured
+      (project / watches / repo-path).
+    required: false
+    default: 'true'
+
+  sca:
+    description: >
+      Run Software Composition Analysis (SCA) sub-scan only.
+      When none of sca/secrets/sast/iac are true, all sub-scans run.
+    required: false
+    default: 'false'
+
+  secrets:
+    description: >
+      Run secrets detection sub-scan only.
+      When none of sca/secrets/sast/iac are true, all sub-scans run.
+    required: false
+    default: 'false'
+
+  sast:
+    description: >
+      Run Static Application Security Testing (SAST) sub-scan only.
+      When none of sca/secrets/sast/iac are true, all sub-scans run.
+    required: false
+    default: 'false'
+
+  iac:
+    description: >
+      Run Infrastructure-as-Code (IaC) misconfiguration sub-scan only.
+      When none of sca/secrets/sast/iac are true, all sub-scans run.
+    required: false
+    default: 'false'
+
+  static-sca:
+    description: >
+      Use the new static SCA analysis engine for more accurate results.
+      Requires JFrog CLI v2.90.0 or later.
+    required: false
+    default: 'false'
+
+  snippet:
+    description: >
+      Include code snippets in static SCA results.
+      Requires 'static-sca: true' and JFrog CLI v2.94.0 or later.
+    required: false
+    default: 'false'
+
+  licenses:
+    description: 'Include discovered open-source licenses in the results.'
+    required: false
+    default: 'false'
+
+  force-no-git:
+    description: >
+      Force using 'jf audit' instead of 'jf git audit'.
+      By default, 'jf git audit' is used when a .git directory is detected,
+      providing richer results with Git context. Set to 'true' to skip Git
+      context detection and always use the plain 'jf audit' command.
+    required: false
+    default: 'false'
+
+outputs:
+  result:
+    description: 'Overall audit result: "pass" or "fail".'
+
+  vulnerabilities-count:
+    description: 'Total number of SCA vulnerabilities found.'
+
+  violations-count:
+    description: 'Total number of security violations (policy-based).'
+
+  secrets-count:
+    description: 'Total number of secrets found (vulnerabilities + violations).'
+
+  iac-count:
+    description: 'Total number of IaC issues found (vulnerabilities + violations).'
+
+  sast-count:
+    description: 'Total number of SAST issues found (vulnerabilities + violations).'
+
+  license-violations-count:
+    description: 'Total number of license policy violations.'
+
+  operational-risk-count:
+    description: 'Total number of operational risk violations.'
+
+  critical-count:
+    description: 'Total Critical severity findings across all scan types.'
+
+  high-count:
+    description: 'Total High severity findings across all scan types.'
+
+  scan-id:
+    description: 'The multiScanId from the JFrog scan results (useful for linking to the JFrog Platform).'
+
+  has-errors:
+    description: '"true" if any scan errors occurred during the audit.'
+
+  pr-policy-fail:
+    description: '"true" if any violation has the "Fail Pull Request" policy rule triggered.'
+
+  build-policy-fail:
+    description: '"true" if any violation has the "Fail Build" policy rule triggered.'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -1,0 +1,21 @@
+{
+  "name": "audit-gate",
+  "version": "1.0.0",
+  "description": "GitHub Action: Run JFrog security audit and publish rich results as a GitHub Job Summary",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "package": "ncc build src/main.ts -o dist --source-map --license licenses.txt",
+    "all": "npm run build && npm run package"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@actions/core": "^1.10.1",
+    "@actions/exec": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@vercel/ncc": "^0.38.1",
+    "typescript": "^5.4.5"
+  }
+}
